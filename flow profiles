@@ -1,0 +1,193 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Parameters for Stage 1
+permeance_CO2 = 10000 * 3.35e-10  # Permeance in mol/(m2*s*Pa)
+selectivity_CO2_N2 = 30  # Selectivity for CO2 over N2
+P_feed1 = 1e5  # Feed pressure in Pa (1 bar) for Stage 1
+Xf_CO2_stage1 = 0.1  # Initial feed mole fraction of CO2 for Stage 1
+Qf0_stage1 = 2.5  # Initial feed flow rate in mol/s for Stage 1
+A1 = 10  # Membrane area for Stage 1 in m^2
+N_elem1 = 100  # Number of discretized elements for Stage 1
+dA1 = A1 / N_elem1  # Area per element for Stage 1
+
+# Parameters for Stage 2
+P_feed2 = 1e5  # Feed pressure in Pa (1 bar) for Stage 2
+P_permeate2 = 2e4  # Permeate pressure in Pa (0.2 bar) for Stage 2
+A2 = 5  # Membrane area for Stage 2 in m^2
+N_elem2 = 50  # Number of discretized elements for Stage 2
+dA2 = A2 / N_elem2  # Area per element for Stage 2
+
+
+# Function to simulate a single membrane stage
+def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selectivity):
+    beta = P_permeate / P_feed
+    alpha = selectivity
+    Qf = np.zeros(N_elem + 1)  # Retentate flow rate in each element
+    Xf = np.zeros(N_elem + 1)  # Retentate mole fraction of CO2
+    J_CO2 = np.zeros(N_elem)  # Flux of CO2
+    J_N2 = np.zeros(N_elem)  # Flux of N2
+
+    # Initial feed conditions
+    Xf[0] = Xf_CO2
+    Qf[0] = Qf0
+
+    # Discrete element calculations for the stage
+    for i in range(N_elem):
+        # Calculate CO2 concentration in permeate
+        Xp = (1 + (alpha - 1) * (beta + Xf[i]) -
+              np.sqrt((1 + (alpha - 1) * (beta + Xf[i])) ** 2 -
+                      4 * alpha * beta * (alpha - 1) * Xf[i])) / (2 * beta * (alpha - 1))
+
+        # Calculate fluxes for CO2 and N2
+        J_CO2[i] = permeance * (P_feed * Xf[i] - P_permeate * Xp)
+        J_N2[i] = permeance / selectivity * (P_feed * (1 - Xf[i]) - P_permeate * (1 - Xp))
+
+        # Update retentate flow rate and composition
+        Qf[i + 1] = Qf[i] - (J_CO2[i] + J_N2[i]) * dA  # Retentate flow rate
+        Xf[i + 1] = (Xf[i] * Qf[i] - J_CO2[i] * dA) / Qf[i + 1]  # Update CO2 concentration in retentate
+
+    # Calculate total permeate flow rate and CO2 mole fraction in permeate
+    Q_permeate_out = np.sum((J_CO2 + J_N2) * dA)  # Sum of all fluxes across the membrane area
+    X_permeate_CO2_out = np.sum(J_CO2 * dA) / Q_permeate_out  # Final permeate CO2 concentration
+
+    # Calculate recovery and purity for this stage
+    recovery_stage = (Q_permeate_out * X_permeate_CO2_out) / (Qf0 * Xf_CO2)
+    purity_stage = X_permeate_CO2_out
+
+    return Q_permeate_out, X_permeate_CO2_out, Qf[-1], Xf[-1], recovery_stage, purity_stage
+
+
+# Define the range of permeate pressures with 0.01 bar increments
+P_permeate1_values = np.arange(0.01, 0.51, 0.01) * 1e5  # Range of permeate pressures in Pa with 0.01 bar increments
+stage1_recoveries = []
+stage1_purities = []
+stage2_recoveries = []
+stage2_purities = []
+global_recoveries = []
+global_purities = []
+permeate_flow_to_feed_flow_ratios = []  # Store permeate flow / feed flow ratio
+permeate_compositions = []  # Store CO₂ composition in the permeate
+
+# Simulate for each permeate pressure in Stage 1
+for P_permeate1 in P_permeate1_values:
+    # Stage 1 Simulation
+    Q_permeate1, X_permeate_CO2_1, Q_retentate1, X_retentate_CO2_1, recovery_stage1, purity_stage1 = membrane_stage(
+        Qf0_stage1, Xf_CO2_stage1, P_feed1, P_permeate1, dA1, N_elem1, permeance_CO2, selectivity_CO2_N2)
+
+    # Stage 2 Simulation (feed from permeate of Stage 1)
+    Qf0_stage2 = Q_permeate1  # Feed flow rate for Stage 2 is the permeate of Stage 1
+    Xf_CO2_stage2 = X_permeate_CO2_1  # Feed mole fraction of CO2 for Stage 2
+    Q_permeate2, X_permeate_CO2_2, Q_retentate2, X_retentate_CO2_2, recovery_stage2, purity_stage2 = membrane_stage(
+        Qf0_stage2, Xf_CO2_stage2, P_feed2, P_permeate2, dA2, N_elem2, permeance_CO2, selectivity_CO2_N2)
+
+    # Global recovery and purity
+    global_recovery = (Q_permeate1 * X_permeate_CO2_1) / (Qf0_stage1 * Xf_CO2_stage1)
+    global_purity = X_permeate_CO2_2
+
+    # Append results
+    stage1_recoveries.append(recovery_stage1)
+    stage1_purities.append(purity_stage1)
+    stage2_recoveries.append(recovery_stage2)
+    stage2_purities.append(purity_stage2)
+    global_recoveries.append(global_recovery)
+    global_purities.append(global_purity)
+
+    # Calculate permeate flow to feed flow ratio and CO₂ composition in permeate
+    permeate_flow_to_feed_flow_ratios.append(Q_permeate1 / Qf0_stage1)
+    permeate_compositions.append(X_permeate_CO2_1)
+
+# Convert results to arrays for plotting
+P_permeate1_values_bar = P_permeate1_values / 1e5  # Convert to bar for easier reading
+stage1_recoveries = np.array(stage1_recoveries)
+stage1_purities = np.array(stage1_purities)
+stage2_recoveries = np.array(stage2_recoveries)
+stage2_purities = np.array(stage2_purities)
+global_recoveries = np.array(global_recoveries)
+global_purities = np.array(global_purities)
+permeate_flow_to_feed_flow_ratios = np.array(permeate_flow_to_feed_flow_ratios)
+permeate_compositions = np.array(permeate_compositions)
+
+# Define three permeate pressures to investigate for detailed profiles
+permeate_pressures_to_investigate = [0.1e5, 0.3e5, 0.5e5]  # in Pa
+
+# Lists to store profiles for each investigated permeate pressure
+CO2_concentration_profiles_feed = []
+CO2_concentration_profiles_permeate = []
+CO2_flux_profiles = []
+N2_flux_profiles = []
+flow_rate_profiles_feed = []
+
+# Simulate profiles for each selected permeate pressure
+for P_permeate1 in permeate_pressures_to_investigate:
+    # Initialize arrays for storing profile data
+    Qf_profile = np.zeros(N_elem1 + 1)
+    Xf_profile = np.zeros(N_elem1 + 1)
+    J_CO2_profile = np.zeros(N_elem1)
+    J_N2_profile = np.zeros(N_elem1)
+    X_permeate_profile = np.zeros(N_elem1)
+
+    # Set initial conditions
+    Qf_profile[0] = Qf0_stage1
+    Xf_profile[0] = Xf_CO2_stage1
+
+    # Calculate profiles for each element in the membrane
+    for i in range(N_elem1):
+        # Calculate CO2 concentration in permeate at each element
+        Xp = (1 + (selectivity_CO2_N2 - 1) * (P_permeate1 / P_feed1 + Xf_profile[i]) -
+              np.sqrt((1 + (selectivity_CO2_N2 - 1) * (P_permeate1 / P_feed1 + Xf_profile[i])) ** 2 -
+
+                      4 * selectivity_CO2_N2 * (P_permeate1 / P_feed1) * (selectivity_CO2_N2 - 1) * Xf_profile[i])) / (
+                         2 * (P_permeate1 / P_feed1) * (selectivity_CO2_N2 - 1))
+        X_permeate_profile[i] = Xp  # Store CO2 concentration in permeate
+
+        # Calculate fluxes for CO2 and N2
+        J_CO2_profile[i] = permeance_CO2 * (P_feed1 * Xf_profile[i] - P_permeate1 * Xp)
+        J_N2_profile[i] = permeance_CO2 / selectivity_CO2_N2 * (P_feed1 * (1 - Xf_profile[i]) - P_permeate1 * (1 - Xp))
+
+        # Update retentate flow rate and CO2 concentration
+        Qf_profile[i + 1] = Qf_profile[i] - (J_CO2_profile[i] + J_N2_profile[i]) * dA1
+        Xf_profile[i + 1] = (Xf_profile[i] * Qf_profile[i] - J_CO2_profile[i] * dA1) / Qf_profile[i + 1]
+
+    # Store profiles for each permeate pressure
+    CO2_concentration_profiles_feed.append(Xf_profile[:-1])  # Feed channel CO2 concentration profile
+    CO2_concentration_profiles_permeate.append(X_permeate_profile)  # Permeate channel CO2 concentration profile
+    CO2_flux_profiles.append(J_CO2_profile)  # CO2 flux profile
+    N2_flux_profiles.append(J_N2_profile)  # N2 flux profile
+    flow_rate_profiles_feed.append(Qf_profile[:-1])  # Feed flow rate profile
+
+# Generate profiles for CO2 concentration in the feed and permeate channels
+plt.figure(figsize=(10, 6))
+for i, P_permeate1 in enumerate(permeate_pressures_to_investigate):
+    plt.plot(np.linspace(0, A1, N_elem1), CO2_concentration_profiles_feed[i],
+             label=f'Feed CO2 at P_perm={P_permeate1 / 1e5:.2f} bar')
+    plt.plot(np.linspace(0, A1, N_elem1), CO2_concentration_profiles_permeate[i], linestyle="--",
+             label=f'Permeate CO2 at P_perm={P_permeate1 / 1e5:.2f} bar')
+plt.xlabel("Membrane Area (m²)")
+plt.ylabel("CO2 Concentration")
+plt.title("Profiles of CO2 Concentration in Feed and Permeate Channels")
+plt.legend()
+plt.show()
+
+# Generate profiles for CO2 and N2 flux
+plt.figure(figsize=(10, 6))
+for i, P_permeate1 in enumerate(permeate_pressures_to_investigate):
+    plt.plot(np.linspace(0, A1, N_elem1), CO2_flux_profiles[i], label=f'CO2 Flux at P_perm={P_permeate1 / 1e5:.2f} bar')
+    plt.plot(np.linspace(0, A1, N_elem1), N2_flux_profiles[i], linestyle="--",
+             label=f'N2 Flux at P_perm={P_permeate1 / 1e5:.2f} bar')
+plt.xlabel("Membrane Area (m²)")
+plt.ylabel("Flux (mol/m²/s)")
+plt.title("Profiles of CO2 and N2 Flux")
+plt.legend()
+plt.show()
+
+# Generate profiles for flow rate in the feed channel
+plt.figure(figsize=(10, 6))
+for i, P_permeate1 in enumerate(permeate_pressures_to_investigate):
+    plt.plot(np.linspace(0, A1, N_elem1), flow_rate_profiles_feed[i],
+             label=f'Feed Flow Rate at P_perm={P_permeate1 / 1e5:.2f} bar')
+plt.xlabel("Membrane Area (m²)")
+plt.ylabel("Flow Rate (mol/s)")
+plt.title("Profiles of Flow Rate in Feed Channel")
+plt.legend()
+plt.show()
