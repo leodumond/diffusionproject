@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Parameters for Stage 1
 permeance_CO2 = 10000 * 3.35e-10  # Permeance in mol/(m2*s*Pa)
@@ -27,6 +28,8 @@ def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selec
     Xf = np.zeros(N_elem + 1)  # Retentate mole fraction of CO2
     J_CO2 = np.zeros(N_elem)  # Flux of CO2
     J_N2 = np.zeros(N_elem)  # Flux of N2
+    Xp_CO2 = np.zeros(N_elem)  # CO2 concentration in permeate at each element
+    Q_permeate_cumulative = np.zeros(N_elem + 1)  # Cumulative permeate flow rate
 
     # Initial feed conditions
     Xf[0] = Xf_CO2
@@ -35,60 +38,92 @@ def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selec
     # Discrete element calculations for the stage
     for i in range(N_elem):
         # Calculate CO2 concentration in permeate
-        Xp = (1 + (alpha - 1) * (beta + Xf[i]) -
-              np.sqrt((1 + (alpha - 1) * (beta + Xf[i])) ** 2 -
-                      4 * alpha * beta * (alpha - 1) * Xf[i])) / (2 * beta * (alpha - 1))
+        Xp_CO2[i] = (1 + (alpha - 1) * (beta + Xf[i]) -
+                     np.sqrt((1 + (alpha - 1) * (beta + Xf[i])) ** 2 -
+                             4 * alpha * beta * (alpha - 1) * Xf[i])) / (2 * beta * (alpha - 1))
 
         # Calculate fluxes for CO2 and N2
-        J_CO2[i] = permeance * (P_feed * Xf[i] - P_permeate * Xp)
-        J_N2[i] = permeance / selectivity * (P_feed * (1 - Xf[i]) - P_permeate * (1 - Xp))
+        J_CO2[i] = permeance * (P_feed * Xf[i] - P_permeate * Xp_CO2[i])
+        J_N2[i] = permeance / selectivity * (P_feed * (1 - Xf[i]) - P_permeate * (1 - Xp_CO2[i]))
 
         # Update retentate flow rate and composition
         Qf[i + 1] = Qf[i] - (J_CO2[i] + J_N2[i]) * dA  # Retentate flow rate
         Xf[i + 1] = (Xf[i] * Qf[i] - J_CO2[i] * dA) / Qf[i + 1]  # Update CO2 concentration in retentate
 
+        # Update cumulative permeate flow rate
+        Q_permeate_cumulative[i + 1] = Q_permeate_cumulative[i] + (J_CO2[i] + J_N2[i]) * dA
+
     # Calculate total permeate flow rate and CO2 mole fraction in permeate
-    Q_permeate_out = np.sum((J_CO2 + J_N2) * dA)  # Sum of all fluxes across the membrane area
+    Q_permeate_out = Q_permeate_cumulative[-1]  # Total cumulative permeate flow rate at the end
     X_permeate_CO2_out = np.sum(J_CO2 * dA) / Q_permeate_out  # Final permeate CO2 concentration
 
     # Calculate recovery and purity for this stage
     recovery_stage = (Q_permeate_out * X_permeate_CO2_out) / (Qf0 * Xf_CO2)
     purity_stage = X_permeate_CO2_out
 
-    return Q_permeate_out, X_permeate_CO2_out, Qf[-1], Xf[-1], recovery_stage, purity_stage
+    return Q_permeate_out, X_permeate_CO2_out, Qf, Q_permeate_cumulative, Xf, Xp_CO2, recovery_stage, purity_stage
 
 
 # Stage 1 Simulation
-Q_permeate1, X_permeate_CO2_1, Q_retentate1, X_retentate_CO2_1, recovery_stage1, purity_stage1 = membrane_stage(
+Q_permeate1, X_permeate_CO2_1, Qf_stage1, Q_permeate_cumulative_stage1, Xf_stage1, Xp_CO2_stage1, recovery_stage1, purity_stage1 = membrane_stage(
     Qf0_stage1, Xf_CO2_stage1, P_feed1, P_permeate1, dA1, N_elem1, permeance_CO2, selectivity_CO2_N2)
 
 # Stage 2 Simulation (feed from permeate of Stage 1)
 Qf0_stage2 = Q_permeate1  # Feed flow rate for Stage 2 is the permeate of Stage 1
 Xf_CO2_stage2 = X_permeate_CO2_1  # Feed mole fraction of CO2 for Stage 2
-Q_permeate2, X_permeate_CO2_2, Q_retentate2, X_retentate_CO2_2, recovery_stage2, purity_stage2 = membrane_stage(
+Q_permeate2, X_permeate_CO2_2, Qf_stage2, Q_permeate_cumulative_stage2, Xf_stage2, Xp_CO2_stage2, recovery_stage2, purity_stage2 = membrane_stage(
     Qf0_stage2, Xf_CO2_stage2, P_feed2, P_permeate2, dA2, N_elem2, permeance_CO2, selectivity_CO2_N2)
 
-# Global recovery and purity
-global_recovery = (Q_permeate1 * X_permeate_CO2_1) / (Qf0_stage1 * Xf_CO2_stage1)
+# Global recovery and purity using second stage permeate output
+global_recovery = (Q_permeate2 * X_permeate_CO2_2) / (Qf0_stage1 * Xf_CO2_stage1)
 global_purity = X_permeate_CO2_2  # Final permeate CO2 concentration from Stage 2
 
 # Display results
 print("Stage 1 Results:")
 print(f"  Permeate Flow Rate (mol/s): {Q_permeate1:.4f}")
 print(f"  Permeate CO2 Concentration: {X_permeate_CO2_1:.4f}")
-print(f"  Retentate Flow Rate (mol/s): {Q_retentate1:.4f}")
-print(f"  Retentate CO2 Concentration: {X_retentate_CO2_1:.4f}")
 print(f"  Recovery for Stage 1: {recovery_stage1:.4f}")
 print(f"  Purity for Stage 1: {purity_stage1:.4f}")
 
 print("\nStage 2 Results:")
 print(f"  Permeate Flow Rate (mol/s): {Q_permeate2:.4f}")
 print(f"  Permeate CO2 Concentration: {X_permeate_CO2_2:.4f}")
-print(f"  Retentate Flow Rate (mol/s): {Q_retentate2:.4f}")
-print(f"  Retentate CO2 Concentration: {X_retentate_CO2_2:.4f}")
 print(f"  Recovery for Stage 2: {recovery_stage2:.4f}")
 print(f"  Purity for Stage 2: {purity_stage2:.4f}")
 
 print("\nOverall Process Results:")
 print(f"  Global Recovery: {global_recovery:.4f}")
 print(f"  Global Purity: {global_purity:.4f}")
+
+# Plotting the results for Stage 1
+x_vals_stage1 = np.linspace(0, A1, N_elem1 + 1)  # Membrane length for Stage 1
+
+plt.figure(figsize=(12, 8))
+
+# Plotting Retentate and Permeate Flow Rates along Membrane Length
+plt.subplot(2, 2, 1)
+plt.plot(x_vals_stage1, Qf_stage1, label="Retentate Flow Rate", color="blue")
+plt.plot(x_vals_stage1, Q_permeate_cumulative_stage1, label="Total Permeate Flow Rate", color="green")
+plt.xlabel("Membrane Area (m^2)")
+plt.ylabel("Flow Rate (mol/s)")
+plt.title("Retentate and Total Permeate Flow Rate along Membrane Length (Stage 1)")
+plt.legend()
+
+# Plotting CO2 Fraction in Permeate along Membrane Length
+plt.subplot(2, 2, 2)
+plt.plot(x_vals_stage1[:-1], Xp_CO2_stage1, label="CO2 Fraction in Permeate", color="orange")
+plt.xlabel("Membrane Area (m^2)")
+plt.ylabel("CO2 Fraction")
+plt.title("CO2 Concentration in Permeate along Membrane Length (Stage 1)")
+plt.legend()
+
+# Plotting Retentate CO2 Concentration along Membrane Length
+plt.subplot(2, 2, 3)
+plt.plot(x_vals_stage1, Xf_stage1, label="Retentate CO2 Concentration", color="purple")
+plt.xlabel("Membrane Area (m^2)")
+plt.ylabel("CO2 Fraction")
+plt.title(" Concentration of Co2 in feed  along Membrane Length (Stage 1)")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
