@@ -1,0 +1,98 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Parameters for Single Stage
+permeance_CO2 = 10000 * 3.35e-10  # Permeance in mol/(m2*s*Pa)
+selectivity_CO2_N2 = 30  # Selectivity for CO2 over N2
+P_feed = 1e5  # Feed pressure in Pa (1 bar)
+Xf_CO2 = 0.1  # Initial feed mole fraction of CO2
+Qf0 = 2.5  # Initial feed flow rate in mol/s
+A = 10  # Membrane area in m^2
+N_elem = 100  # Number of discretized elements
+dA = A / N_elem  # Area per element
+
+# Function to simulate a single membrane stage
+def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selectivity):
+    beta = P_permeate / P_feed
+    alpha = selectivity
+    Qf = np.zeros(N_elem + 1)  # Retentate flow rate in each element
+    Xf = np.zeros(N_elem + 1)  # Retentate mole fraction of CO2
+    J_CO2 = np.zeros(N_elem)  # Flux of CO2
+    J_N2 = np.zeros(N_elem)  # Flux of N2
+
+    # Initial feed conditions
+    Xf[0] = Xf_CO2
+    Qf[0] = Qf0
+
+    # Discrete element calculations for the stage
+    for i in range(N_elem):
+        # Calculate CO2 concentration in permeate
+        Xp = (1 + (alpha - 1) * (beta + Xf[i]) -
+              np.sqrt((1 + (alpha - 1) * (beta + Xf[i])) ** 2 -
+                      4 * alpha * beta * (alpha - 1) * Xf[i])) / (2 * beta * (alpha - 1))
+
+        # Calculate fluxes for CO2 and N2
+        J_CO2[i] = permeance * (P_feed * Xf[i] - P_permeate * Xp)
+        J_N2[i] = permeance / selectivity * (P_feed * (1 - Xf[i]) - P_permeate * (1 - Xp))
+
+        # Update retentate flow rate and composition
+        Qf[i + 1] = Qf[i] - (J_CO2[i] + J_N2[i]) * dA  # Retentate flow rate
+        Xf[i + 1] = (Xf[i] * Qf[i] - J_CO2[i] * dA) / Qf[i + 1]  # Update CO2 concentration in retentate
+
+    # Calculate total permeate flow rate and CO2 mole fraction in permeate
+    Q_permeate_out = np.sum((J_CO2 + J_N2) * dA)  # Sum of all fluxes across the membrane area
+    X_permeate_CO2_out = np.sum(J_CO2 * dA) / Q_permeate_out  # Final permeate CO2 concentration
+
+    # Calculate recovery and purity for this stage
+    recovery_stage = (Q_permeate_out * X_permeate_CO2_out) / (Qf0 * Xf_CO2)
+    purity_stage = X_permeate_CO2_out
+
+    return Q_permeate_out, X_permeate_CO2_out, Qf[-1], Xf[-1], recovery_stage, purity_stage
+
+# Define the range of permeate pressures with 0.01 bar increments
+P_permeate_values = np.arange(0.01, 0.51, 0.01) * 1e5  # Range of permeate pressures in Pa with 0.01 bar increments
+recoveries = []
+purities = []
+
+# Simulate for each permeate pressure
+for P_permeate in P_permeate_values:
+    Q_permeate, X_permeate_CO2, Q_retentate, X_retentate_CO2, recovery, purity = membrane_stage(
+        Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance_CO2, selectivity_CO2_N2)
+
+    # Append results
+    recoveries.append(recovery)
+    purities.append(purity)
+
+# Convert results to arrays for plotting
+P_permeate_values_bar = P_permeate_values / 1e5  # Convert to bar for easier reading
+recoveries = np.array(recoveries)
+purities = np.array(purities)
+
+# Plot results
+plt.figure(figsize=(10, 5))
+
+# Recovery vs. Permeate Pressure
+plt.subplot(1, 2, 1)
+plt.plot(P_permeate_values_bar, recoveries, label="Recovery", color="b")
+plt.xlabel("Permeate Pressure (bar)")
+plt.ylabel("Recovery")
+plt.title("Recovery vs. Permeate Pressure")
+plt.legend()
+
+# Purity vs. Permeate Pressure
+plt.subplot(1, 2, 2)
+plt.plot(P_permeate_values_bar, purities, label="Purity", color="g")
+plt.xlabel("Permeate Pressure (bar)")
+plt.ylabel("Purity")
+plt.title("Purity vs. Permeate Pressure")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# Print results in tabular format
+print("Permeate Pressure (bar) | Recovery | Purity")
+for i in range(len(P_permeate_values_bar)):
+    print(f"{P_permeate_values_bar[i]:.2f} bar              | "
+          f"{recoveries[i]:.4f}       | "
+          f"{purities[i]:.4f}")
