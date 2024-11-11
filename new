@@ -1,0 +1,103 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Parameters for Stage 1
+permeance_CO2 = 10000 * 3.35e-10  # Permeance in mol/(m2*s*Pa)
+selectivity_CO2_N2 = 30  # Selectivity for CO2 over N2
+P_feed1 = 1e5  # Feed pressure in Pa (1 bar) for Stage 1
+Xf_CO2_stage1 = 0.1  # Initial feed mole fraction of CO2 for Stage 1
+Qf0_stage1 = 2.5  # Initial feed flow rate in mol/s for Stage 1
+A1 = 10  # Membrane area for Stage 1 in m^2
+N_elem1 = 100  # Number of discretized elements for Stage 1
+dA1 = A1 / N_elem1  # Area per element for Stage 1
+
+# Parameters for Stage 2
+P_feed2 = 1e5  # Feed pressure in Pa (1 bar) for Stage 2
+P_permeate2 = 2e4  # Permeate pressure in Pa (0.2 bar) for Stage 2
+A2 = 5  # Membrane area for Stage 2 in m^2
+N_elem2 = 50  # Number of discretized elements for Stage 2
+dA2 = A2 / N_elem2  # Area per element for Stage 2
+
+
+# Function to simulate a single membrane stage
+def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selectivity):
+    beta = P_permeate / P_feed
+    alpha = selectivity
+    Qf = np.zeros(N_elem + 1)  # Retentate flow rate in each element
+    Xf = np.zeros(N_elem + 1)  # Retentate mole fraction of CO2
+    J_CO2 = np.zeros(N_elem)  # Flux of CO2
+    J_N2 = np.zeros(N_elem)  # Flux of N2
+
+    # Initial feed conditions
+    Xf[0] = Xf_CO2
+    Qf[0] = Qf0
+
+    # Discrete element calculations for the stage
+    for i in range(N_elem):
+        # Calculate CO2 concentration in permeate
+        Xp = (1 + (alpha - 1) * (beta + Xf[i]) -
+              np.sqrt((1 + (alpha - 1) * (beta + Xf[i])) ** 2 -
+                      4 * alpha * beta * (alpha - 1) * Xf[i])) / (2 * beta * (alpha - 1))
+
+        # Calculate fluxes for CO2 and N2
+        J_CO2[i] = permeance * (P_feed * Xf[i] - P_permeate * Xp)
+        J_N2[i] = permeance / selectivity * (P_feed * (1 - Xf[i]) - P_permeate * (1 - Xp))
+
+        # Update retentate flow rate and composition
+        Qf[i + 1] = Qf[i] - (J_CO2[i] + J_N2[i]) * dA  # Retentate flow rate
+        Xf[i + 1] = (Xf[i] * Qf[i] - J_CO2[i] * dA) / Qf[i + 1]  # Update CO2 concentration in retentate
+
+    return Qf, Xf, J_CO2, J_N2
+
+
+# Define permeate pressures for Stage 1 to investigate
+P_permeate1_values = [0.01, 0.1, 0.5]  # in bar
+P_permeate1_values = [p * 1e5 for p in P_permeate1_values]  # Convert to Pa
+
+# Initialize storage for profiles
+stage1_CO2_N2_profiles = {}
+stage2_CO2_N2_profiles = {}
+
+# Simulate for each permeate pressure in Stage 1
+for P_permeate1 in P_permeate1_values:
+    # Stage 1 Simulation
+    Qf_stage1, Xf_stage1, J_CO2_stage1, J_N2_stage1 = membrane_stage(
+        Qf0_stage1, Xf_CO2_stage1, P_feed1, P_permeate1, dA1, N_elem1, permeance_CO2, selectivity_CO2_N2)
+
+    # Stage 2 Simulation (feed from permeate of Stage 1)
+    Qf0_stage2 = Qf_stage1[-1] * Xf_stage1[-1]  # Feed flow rate for Stage 2 is the permeate of Stage 1
+    Xf_CO2_stage2 = Xf_stage1[-1]  # Feed mole fraction of CO2 for Stage 2
+    Qf_stage2, Xf_stage2, J_CO2_stage2, J_N2_stage2 = membrane_stage(
+        Qf0_stage2, Xf_CO2_stage2, P_feed2, P_permeate2, dA2, N_elem2, permeance_CO2, selectivity_CO2_N2)
+
+    # Store profiles for Stage 1 and Stage 2
+    stage1_CO2_N2_profiles[P_permeate1] = (J_CO2_stage1, J_N2_stage1)
+    stage2_CO2_N2_profiles[P_permeate1] = (J_CO2_stage2, J_N2_stage2)
+
+# Plot CO2 and N2 concentration profiles along membrane length for Stage 1
+plt.figure(figsize=(12, 8))
+for P_permeate1 in P_permeate1_values:
+    J_CO2_stage1, J_N2_stage1 = stage1_CO2_N2_profiles[P_permeate1]
+    plt.plot(np.linspace(0, A1, N_elem1), J_CO2_stage1,
+             label=f"Stage 1 CO₂ Flux (P_permeate1 = {P_permeate1 / 1e5:.2f} bar)", linestyle='-')
+    plt.plot(np.linspace(0, A1, N_elem1), J_N2_stage1,
+             label=f"Stage 1 N₂ Flux (P_permeate1 = {P_permeate1 / 1e5:.2f} bar)", linestyle='--')
+plt.xlabel("Membrane Length (m)")
+plt.ylabel("Flux (mol/(m²·s))")
+plt.title("CO₂ and N₂ Flux Profiles Along Membrane Length (Stage 1)")
+plt.legend()
+plt.show()
+
+# Plot CO2 and N2 concentration profiles along membrane length for Stage 2
+plt.figure(figsize=(12, 8))
+for P_permeate1 in P_permeate1_values:
+    J_CO2_stage2, J_N2_stage2 = stage2_CO2_N2_profiles[P_permeate1]
+    plt.plot(np.linspace(0, A2, N_elem2), J_CO2_stage2,
+             label=f"Stage 2 CO₂ Flux (P_permeate1 = {P_permeate1 / 1e5:.2f} bar)", linestyle='-')
+    plt.plot(np.linspace(0, A2, N_elem2), J_N2_stage2,
+             label=f"Stage 2 N₂ Flux (P_permeate1 = {P_permeate1 / 1e5:.2f} bar)", linestyle='--')
+plt.xlabel("Membrane Length (m)")
+plt.ylabel("Flux (mol/(m²·s))")
+plt.title("CO₂ and N₂ Flux Profiles Along Membrane Length (Stage 2)")
+plt.legend()
+plt.show()
