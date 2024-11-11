@@ -58,14 +58,16 @@ def membrane_stage(Qf0, Xf_CO2, P_feed, P_permeate, dA, N_elem, permeance, selec
     return Q_permeate_out, X_permeate_CO2_out, Qf[-1], Xf[-1], recovery_stage, purity_stage
 
 
-# Arrays to store results for each value of P_permeate1
-P_permeate1_values = np.linspace(0.01, 0.5, 20) * 1e5  # Range of permeate pressures in Pa
+# Define the range of permeate pressures with 0.01 bar increments
+P_permeate1_values = np.arange(0.01, 0.51, 0.01) * 1e5  # Range of permeate pressures in Pa with 0.01 bar increments
 stage1_recoveries = []
 stage1_purities = []
 stage2_recoveries = []
 stage2_purities = []
 global_recoveries = []
 global_purities = []
+permeate_flow_to_feed_flow_ratios = []  # Store permeate flow / feed flow ratio
+permeate_compositions = []  # Store CO₂ composition in the permeate
 
 # Simulate for each permeate pressure in Stage 1
 for P_permeate1 in P_permeate1_values:
@@ -91,6 +93,10 @@ for P_permeate1 in P_permeate1_values:
     global_recoveries.append(global_recovery)
     global_purities.append(global_purity)
 
+    # Calculate permeate flow to feed flow ratio and CO₂ composition in permeate
+    permeate_flow_to_feed_flow_ratios.append(Q_permeate1 / Qf0_stage1)
+    permeate_compositions.append(X_permeate_CO2_1)
+
 # Convert results to arrays for plotting
 P_permeate1_values_bar = P_permeate1_values / 1e5  # Convert to bar for easier reading
 stage1_recoveries = np.array(stage1_recoveries)
@@ -99,6 +105,8 @@ stage2_recoveries = np.array(stage2_recoveries)
 stage2_purities = np.array(stage2_purities)
 global_recoveries = np.array(global_recoveries)
 global_purities = np.array(global_purities)
+permeate_flow_to_feed_flow_ratios = np.array(permeate_flow_to_feed_flow_ratios)
+permeate_compositions = np.array(permeate_compositions)
 
 # Plot results
 plt.figure(figsize=(12, 8))
@@ -136,12 +144,32 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-# Global Recovery and Purity
-plt.figure(figsize=(10, 5))
-
-plt.subplot(1, 2, 1)
-plt.plot(P_permeate1_values_bar, global_recoveries, label="Global Recovery", color="b")
+# New Plot 1: Permeate Flow / Feed Flow vs. Permeate Pressure
+plt.figure(figsize=(8, 6))
+plt.plot(P_permeate1_values_bar, permeate_flow_to_feed_flow_ratios, label="Permeate Flow / Feed Flow", color="r")
 plt.xlabel("Permeate Pressure in Stage 1 (bar)")
-plt.ylabel("Global Recovery")
-plt.title("Global Recovery vs. Permeate Pressure")
+plt.ylabel("Permeate Flow / Feed Flow")
+plt.title("Permeate Flow / Feed Flow vs. Permeate Pressure")
 plt.legend()
+plt.show()
+
+# New Plot 2: Permeate Composition vs. Feed/Permeate Pressure Ratio
+feed_permeate_pressure_ratio = P_feed1 / P_permeate1_values  # Feed/Permeate Pressure Ratio
+plt.figure(figsize=(8, 6))
+plt.plot(feed_permeate_pressure_ratio, permeate_compositions, label="Permeate CO₂ Composition", color="m")
+plt.xlabel("Feed/Permeate Pressure Ratio")
+plt.ylabel("Permeate CO₂ Composition")
+plt.title("Permeate Composition vs. Feed/Permeate Pressure Ratio")
+plt.legend()
+plt.show()
+
+# Print results in tabular format
+print("Permeate Pressure (bar) | Stage 1 Recovery | Stage 1 Purity | Global Recovery | Global Purity")
+for i in range(len(P_permeate1_values_bar)):
+    print(f"{P_permeate1_values_bar[i]:.2f} bar              | "
+          f"{stage1_recoveries[i]:.4f}          | "
+          f"{stage1_purities[i]:.4f}       | "
+          f"{global_recoveries[i]:.4f}          | "
+          f"{global_purities[i]:.4f}")
+
+
